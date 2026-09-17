@@ -181,6 +181,63 @@
     font-size: 12px;
     margin-top: 20px;
   }
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 28px 0 12px;
+  }
+  .section-head h2 { font-size: 16px; margin: 0; }
+  .tabs { display: flex; gap: 6px; }
+  .tab-btn {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .tab-btn.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+  .table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card-bg);
+  }
+  table.data-table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 780px;
+    font-size: 12.5px;
+  }
+  table.data-table th, table.data-table td {
+    padding: 8px 10px;
+    text-align: right;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  table.data-table th:first-child, table.data-table td:first-child {
+    text-align: left;
+    position: sticky;
+    left: 0;
+    background: var(--card-bg);
+  }
+  table.data-table th {
+    color: var(--text-muted);
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  table.data-table th.sorted::after { content: " ▾"; }
+  table.data-table th.sorted.asc::after { content: " ▴"; }
+  table.data-table tbody tr:hover td { background: var(--bg); }
+  .chg-up { color: var(--bad-border); font-weight: 600; }
+  .chg-down { color: var(--ok-border); font-weight: 600; }
+  .chg-flat { color: var(--text-muted); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -206,6 +263,35 @@
     <div class="narrative" id="narrative"></div>
 
     <div class="grid" id="grid"></div>
+
+    <div class="section-head">
+      <h2>📈 原始行情數據（現值＋9期漲跌幅）</h2>
+      <div class="tabs">
+        <button class="tab-btn active" data-cat="全球股市">全球股市</button>
+        <button class="tab-btn" data-cat="重要資產">重要資產</button>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table class="data-table" id="marketTable">
+        <thead>
+          <tr>
+            <th data-key="name">標的</th>
+            <th data-key="current">現值</th>
+            <th data-key="d1">1日</th>
+            <th data-key="w1">1週</th>
+            <th data-key="m1">1月</th>
+            <th data-key="q1">1季</th>
+            <th data-key="h1">半年</th>
+            <th data-key="ytd">年初至今</th>
+            <th data-key="y1">1年</th>
+            <th data-key="y3">3年</th>
+            <th data-key="y5">5年</th>
+          </tr>
+        </thead>
+        <tbody id="marketTableBody"></tbody>
+      </table>
+    </div>
+    <p style="font-size:12px;color:var(--text-muted);margin-top:8px;" id="marketTableNote"></p>
   </div>
 
   <footer>資料每日由n8n自動更新一次，非即時報價 · 由Claude協助建置</footer>
@@ -213,6 +299,14 @@
 
 <script>
 const CSV_URL_AGENT = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTbuVmc_4oHPwOMNwSS3KurO-abQ58bCNeBTDcBtPBIUkoVFKzxPcMPJqwMABUqEL6roIyeKndY9UK3/pub?gid=0&single=true&output=csv";
+const CSV_URL_MARKET = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTbuVmc_4oHPwOMNwSS3KurO-abQ58bCNeBTDcBtPBIUkoVFKzxPcMPJqwMABUqEL6roIyeKndY9UK3/pub?gid=1884288371&single=true&output=csv";
+
+const CHANGE_SUFFIXES = [
+  ["_1日漲跌幅", "d1"], ["_1週漲跌幅", "w1"], ["_1月漲跌幅", "m1"], ["_1季漲跌幅", "q1"],
+  ["_半年漲跌幅", "h1"], ["_年初至今漲跌幅", "ytd"], ["_1年漲跌幅", "y1"],
+  ["_3年漲跌幅", "y3"], ["_5年漲跌幅", "y5"]
+];
+const CHANGE_COLUMNS = ["d1", "w1", "m1", "q1", "h1", "ytd", "y1", "y3", "y5"];
 
 const CATEGORY_ORDER = [
   "美股總經", "美股個股", "全球股市", "重要資產", "市場情緒",
@@ -305,6 +399,134 @@ function renderDashboard(row) {
   document.getElementById("state").hidden = true;
   document.getElementById("content").hidden = false;
 }
+
+// 把「每日市場數據(網頁用)」的扁平列，依indicator名稱去掉9期漲跌幅字尾，重組回「1標的=1筆」的物件，
+// 每個欄位取該indicator在資料裡period最新的一筆(因為Append or Update會逐日累積歷史，同一指標會有多天的列)
+function buildInstrumentTable(rawRows, category) {
+  const latestByIndicator = {};
+  for (const r of rawRows) {
+    if (r.category !== category || !r.indicator) continue;
+    const prev = latestByIndicator[r.indicator];
+    if (!prev || (r.period || "") > (prev.period || "")) {
+      latestByIndicator[r.indicator] = r;
+    }
+  }
+
+  const instruments = {};
+  for (const r of Object.values(latestByIndicator)) {
+    let base = r.indicator;
+    let field = "current";
+    for (const [suffix, key] of CHANGE_SUFFIXES) {
+      if (r.indicator.endsWith(suffix)) {
+        base = r.indicator.slice(0, -suffix.length);
+        field = key;
+        break;
+      }
+    }
+    if (!instruments[base]) instruments[base] = { name: base };
+    const num = r.value === "" || r.value === undefined ? null : Number(r.value);
+    instruments[base][field] = { value: Number.isNaN(num) ? null : num, unit: r.unit, period: r.period };
+  }
+  return Object.values(instruments);
+}
+
+function formatChange(cell) {
+  if (!cell || cell.value === null || cell.value === undefined) return '<span class="chg-flat">—</span>';
+  const v = cell.value;
+  const cls = v > 0 ? "chg-up" : v < 0 ? "chg-down" : "chg-flat";
+  const sign = v > 0 ? "+" : "";
+  return `<span class="${cls}">${sign}${v.toFixed(2)}%</span>`;
+}
+
+function formatCurrent(cell) {
+  if (!cell || cell.value === null || cell.value === undefined) return "—";
+  const v = cell.value;
+  const formatted = Math.abs(v) >= 1000
+    ? v.toLocaleString("zh-TW", { maximumFractionDigits: 2 })
+    : v.toFixed(2);
+  return escapeHtml(formatted + (cell.unit || ""));
+}
+
+let marketInstruments = { "全球股市": [], "重要資產": [] };
+let currentTab = "全球股市";
+let sortState = { key: "name", asc: true };
+
+function renderMarketTable() {
+  const rows = [...(marketInstruments[currentTab] || [])];
+  const key = sortState.key;
+
+  rows.sort((a, b) => {
+    let av, bv;
+    if (key === "name") {
+      av = a.name; bv = b.name;
+      return sortState.asc ? av.localeCompare(bv, "zh-Hant") : bv.localeCompare(av, "zh-Hant");
+    }
+    av = a[key] && a[key].value !== null && a[key].value !== undefined ? a[key].value : -Infinity;
+    bv = b[key] && b[key].value !== null && b[key].value !== undefined ? b[key].value : -Infinity;
+    return sortState.asc ? av - bv : bv - av;
+  });
+
+  const tbody = document.getElementById("marketTableBody");
+  tbody.innerHTML = rows.map(inst => `
+    <tr>
+      <td>${escapeHtml(inst.name)}</td>
+      <td>${formatCurrent(inst.current)}</td>
+      ${CHANGE_COLUMNS.map(k => `<td>${formatChange(inst[k])}</td>`).join("")}
+    </tr>
+  `).join("");
+
+  document.querySelectorAll("#marketTable th").forEach(th => {
+    th.classList.toggle("sorted", th.dataset.key === sortState.key);
+    th.classList.toggle("asc", th.dataset.key === sortState.key && sortState.asc);
+  });
+
+  const latestPeriod = rows.reduce((max, inst) => {
+    const p = inst.current && inst.current.period;
+    return p && p > max ? p : max;
+  }, "");
+  document.getElementById("marketTableNote").textContent =
+    rows.length === 0
+      ? "目前尚無資料"
+      : `共${rows.length}項標的，現值資料日期：${latestPeriod || "未知"}（點欄位標題可排序）`;
+}
+
+document.querySelectorAll("#marketTable th").forEach(th => {
+  th.addEventListener("click", () => {
+    if (sortState.key === th.dataset.key) {
+      sortState.asc = !sortState.asc;
+    } else {
+      sortState.key = th.dataset.key;
+      sortState.asc = th.dataset.key === "name";
+    }
+    renderMarketTable();
+  });
+});
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentTab = btn.dataset.cat;
+    sortState = { key: "name", asc: true };
+    renderMarketTable();
+  });
+});
+
+Papa.parse(CSV_URL_MARKET, {
+  download: true,
+  header: true,
+  skipEmptyLines: true,
+  complete: (results) => {
+    const rawRows = results.data || [];
+    marketInstruments["全球股市"] = buildInstrumentTable(rawRows, "全球股市");
+    marketInstruments["重要資產"] = buildInstrumentTable(rawRows, "重要資產");
+    renderMarketTable();
+  },
+  error: (err) => {
+    console.error(err);
+    document.getElementById("marketTableNote").textContent = "原始行情數據讀取失敗，請稍後重新整理。";
+  }
+});
 
 let allRows = [];
 
