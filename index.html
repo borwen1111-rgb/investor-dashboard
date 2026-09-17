@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>投資市場儀表板</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --card-bg: #ffffff;
+    --text: #1a1d23;
+    --text-muted: #6b7280;
+    --border: #e5e7eb;
+    --ok-bg: #ecfdf3;
+    --ok-border: #34c759;
+    --ok-text: #1a7f45;
+    --warn-bg: #fff8e6;
+    --warn-border: #f5a623;
+    --warn-text: #92600a;
+    --bad-bg: #fdecec;
+    --bad-border: #e5484d;
+    --bad-text: #a3181c;
+    --accent: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a;
+      --card-bg: #1e2126;
+      --text: #eceef1;
+      --text-muted: #9aa1ab;
+      --border: #30343b;
+      --ok-bg: #10331f;
+      --ok-border: #2fbf6a;
+      --ok-text: #6fe0a0;
+      --warn-bg: #3a2c0a;
+      --warn-border: #f0a92a;
+      --warn-text: #ffcf6b;
+      --bad-bg: #3a1414;
+      --bad-border: #e5484d;
+      --bad-text: #ff9a9d;
+      --accent: #5b9bff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "PingFang TC", "Microsoft JhengHei", -apple-system, BlinkMacSystemFont, sans-serif;
+    padding: 16px;
+    padding-block: max(16px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-bottom));
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  h1 { font-size: 20px; margin: 0; }
+  .controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  select {
+    background: var(--card-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 14px;
+  }
+  .banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 16px 20px;
+    margin-bottom: 18px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .pill.ok   { background: var(--ok-bg);   color: var(--ok-text);   border-color: var(--ok-border); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn-text); border-color: var(--warn-border); }
+  .pill.bad  { background: var(--bad-bg);  color: var(--bad-text);  border-color: var(--bad-border); }
+  .pill.dot::before {
+    content: "";
+    width: 8px; height: 8px; border-radius: 50%;
+    background: currentColor;
+    display: inline-block;
+  }
+  .banner-date { font-size: 14px; color: var(--text-muted); }
+  .toggle-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--accent);
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .toggle-btn:hover { background: var(--ok-bg); }
+  .narrative {
+    display: none;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+    margin-bottom: 18px;
+    line-height: 1.75;
+    font-size: 14px;
+    white-space: pre-wrap;
+  }
+  .narrative.open { display: block; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 5px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .card.ok   { border-left-color: var(--ok-border); }
+  .card.warn { border-left-color: var(--warn-border); }
+  .card.bad  { border-left-color: var(--bad-border); }
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .card-title { font-size: 15px; font-weight: 700; }
+  .card-summary {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.6;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .metrics { display: flex; flex-direction: column; gap: 6px; margin-top: auto; }
+  .metric {
+    font-size: 12.5px;
+    padding: 6px 8px;
+    border-radius: 8px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+  }
+  .metric .m-label { font-weight: 600; }
+  .metric .m-note { color: var(--text-muted); display: block; margin-top: 2px; }
+  .state {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 60px 20px;
+    font-size: 14px;
+  }
+  footer {
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 20px;
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>📊 投資市場儀表板</h1>
+    <div class="controls">
+      <label for="dateSelect" style="font-size:13px;color:var(--text-muted);">查看日期</label>
+      <select id="dateSelect"></select>
+    </div>
+  </header>
+
+  <div id="state" class="state">資料載入中…</div>
+
+  <div id="content" hidden>
+    <div class="banner">
+      <span class="banner-date" id="bannerDate"></span>
+      <span class="pill dot" id="overallPill">整體訊息</span>
+      <button class="toggle-btn" id="toggleNarrative">查看完整每日總覽 ▾</button>
+    </div>
+
+    <div class="narrative" id="narrative"></div>
+
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <footer>資料每日由n8n自動更新一次，非即時報價 · 由Claude協助建置</footer>
+</div>
+
+<script>
+const CSV_URL_AGENT = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTbuVmc_4oHPwOMNwSS3KurO-abQ58bCNeBTDcBtPBIUkoVFKzxPcMPJqwMABUqEL6roIyeKndY9UK3/pub?gid=0&single=true&output=csv";
+
+const CATEGORY_ORDER = [
+  "美股總經", "美股個股", "全球股市", "重要資產", "市場情緒",
+  "S&P500估值", "TAIEX", "籌碼面", "台股月營收", "台股PER", "台股總體面"
+];
+
+function signalLevel(signal) {
+  if (!signal) return "ok";
+  if (signal.includes("警")) return "bad";
+  if (signal.includes("留意") || signal.includes("注意")) return "warn";
+  return "ok";
+}
+
+function levelLabel(level) {
+  return { ok: "正常", warn: "留意", bad: "警訊" }[level] || level;
+}
+
+function escapeHtml(str) {
+  return String(str || "").replace(/[&<>"']/g, c => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+  }[c]));
+}
+
+function renderNarrative(text) {
+  // 大Agent輸出用 *文字* 表示粗體，這裡轉成 <strong>，其餘原樣保留換行
+  const escaped = escapeHtml(text);
+  return escaped.replace(/\*([^*]+)\*/g, "<strong>$1</strong>");
+}
+
+function pickTopMetrics(keyMetrics, n) {
+  if (!Array.isArray(keyMetrics)) return [];
+  const rank = { bad: 0, warn: 1, ok: 2 };
+  return keyMetrics
+    .map((m, i) => ({ ...m, _i: i, _rank: rank[signalLevel(m.signal)] }))
+    .sort((a, b) => a._rank - b._rank || a._i - b._i)
+    .slice(0, n);
+}
+
+function renderDashboard(row) {
+  document.getElementById("bannerDate").textContent = "資料日期：" + row.date;
+
+  const overallLevel = signalLevel(row.overall_signal);
+  const overallPill = document.getElementById("overallPill");
+  overallPill.className = "pill dot " + overallLevel;
+  overallPill.textContent = "整體訊息：" + (row.overall_signal || "未知");
+
+  document.getElementById("narrative").innerHTML = renderNarrative(row.big_agent_text || "（無資料）");
+
+  let categories = [];
+  try {
+    categories = JSON.parse(row.small_agent_json || "[]");
+  } catch (e) {
+    console.error("small_agent_json 解析失敗", e);
+  }
+
+  const byName = {};
+  categories.forEach(c => { byName[c.category] = c; });
+  const ordered = CATEGORY_ORDER.map(name => byName[name]).filter(Boolean);
+  // 保險：如果有CATEGORY_ORDER沒列到的新類別，補在最後，避免漏掉
+  categories.forEach(c => { if (!CATEGORY_ORDER.includes(c.category)) ordered.push(c); });
+
+  const grid = document.getElementById("grid");
+  grid.innerHTML = "";
+
+  ordered.forEach(cat => {
+    const level = signalLevel(cat.signal);
+    const topMetrics = pickTopMetrics(cat.key_metrics, 2);
+
+    const card = document.createElement("div");
+    card.className = "card " + level;
+
+    const metricsHtml = topMetrics.map(m => `
+      <div class="metric">
+        <span class="m-label">${escapeHtml(m.label)}</span>${m.value ? "：" + escapeHtml(m.value) : ""}
+        ${m.note ? `<span class="m-note">${escapeHtml(m.note)}</span>` : ""}
+      </div>
+    `).join("");
+
+    card.innerHTML = `
+      <div class="card-head">
+        <span class="card-title">${escapeHtml(cat.category)}</span>
+        <span class="pill dot ${level}">${levelLabel(level)}</span>
+      </div>
+      <div class="card-summary" title="${escapeHtml(cat.summary)}">${escapeHtml(cat.summary || "")}</div>
+      <div class="metrics">${metricsHtml}</div>
+    `;
+    grid.appendChild(card);
+  });
+
+  document.getElementById("state").hidden = true;
+  document.getElementById("content").hidden = false;
+}
+
+let allRows = [];
+
+function onDateChange() {
+  const sel = document.getElementById("dateSelect");
+  const row = allRows.find(r => r.date === sel.value);
+  if (row) renderDashboard(row);
+}
+
+document.getElementById("dateSelect").addEventListener("change", onDateChange);
+document.getElementById("toggleNarrative").addEventListener("click", () => {
+  const el = document.getElementById("narrative");
+  const btn = document.getElementById("toggleNarrative");
+  const open = el.classList.toggle("open");
+  btn.textContent = open ? "收合每日總覽 ▴" : "查看完整每日總覽 ▾";
+});
+
+Papa.parse(CSV_URL_AGENT, {
+  download: true,
+  header: true,
+  skipEmptyLines: true,
+  complete: (results) => {
+    allRows = (results.data || [])
+      .filter(r => r.date)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    if (allRows.length === 0) {
+      document.getElementById("state").textContent = "目前還沒有資料，請確認n8n是否已成功寫入。";
+      return;
+    }
+
+    const sel = document.getElementById("dateSelect");
+    sel.innerHTML = allRows.map(r => `<option value="${r.date}">${r.date}</option>`).join("");
+
+    renderDashboard(allRows[0]);
+  },
+  error: (err) => {
+    console.error(err);
+    document.getElementById("state").textContent = "資料讀取失敗，請稍後重新整理，或確認Google試算表的發布網址是否仍然有效。";
+  }
+});
+</script>
+</body>
+</html>
